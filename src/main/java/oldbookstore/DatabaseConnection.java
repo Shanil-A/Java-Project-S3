@@ -2,6 +2,7 @@ package oldbookstore;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
@@ -83,6 +84,34 @@ public class DatabaseConnection {
                     + "FOREIGN KEY (book_id) REFERENCES books(book_id)"
                     + ")";
             stmt.execute(createSalesTable);
+
+            // Create users table
+            String createUsersTable = "CREATE TABLE IF NOT EXISTS users ("
+                    + "user_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    + "username TEXT UNIQUE NOT NULL, "
+                    + "password_hash TEXT NOT NULL, "
+                    + "salt TEXT NOT NULL, "
+                    + "created_at TEXT NOT NULL"
+                    + ")";
+            stmt.execute(createUsersTable);
+
+            // Ensure default admin user exists (username: Admin, password: admin)
+            boolean adminExists = false;
+            try (ResultSet rs = stmt.executeQuery("SELECT 1 FROM users WHERE LOWER(username) = 'admin'")) {
+                if (rs.next()) {
+                    adminExists = true;
+                }
+            }
+            if (!adminExists) {
+                String salt = PasswordUtil.generateSalt();
+                String hash = PasswordUtil.hashPassword("admin", salt);
+                String createdAt = java.time.LocalDateTime.now().format(
+                        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                String insertAdmin = "INSERT INTO users (username, password_hash, salt, created_at) "
+                        + "VALUES ('Admin', '" + hash + "', '" + salt + "', '" + createdAt + "')";
+                stmt.execute(insertAdmin);
+                System.out.println("Default admin user created (Admin / admin).");
+            }
 
             System.out.println("Database initialized successfully.");
 

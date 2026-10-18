@@ -47,6 +47,7 @@ public class MainFrame extends JFrame {
     private BookDAO bookDAO = new BookDAO();
     private PurchaseDAO purchaseDAO = new PurchaseDAO();
     private SaleDAO saleDAO = new SaleDAO();
+    private UserDAO userDAO = new UserDAO();
 
     // ==================== UI COMPONENTS ====================
 
@@ -84,10 +85,24 @@ public class MainFrame extends JFrame {
     private JTable salesHistoryTable;
     private DefaultTableModel salesTableModel;
 
-    // ==================== CONSTRUCTOR ====================
+    // Logged-in user
+    private User currentUser;
+
+    // ==================== CONSTRUCTORS ====================
 
     public MainFrame() {
-        setTitle("Old Book Buy & Sell Register");
+        this(null);
+    }
+
+    public MainFrame(User user) {
+        this.currentUser = user;
+        if (this.currentUser == null) {
+            try {
+                this.currentUser = userDAO.getUserByUsername("Admin");
+            } catch (SQLException ignored) {
+            }
+        }
+        setTitle("Old Book Buy & Sell Register" + (currentUser != null ? " - Logged in as: " + currentUser.getUsername() : ""));
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1100, 700);
         setMinimumSize(new Dimension(900, 600));
@@ -132,11 +147,23 @@ public class MainFrame extends JFrame {
         appTitle.setFont(new Font("Segoe UI", Font.BOLD, 18));
         appTitle.setForeground(ACCENT);
         appTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
-        appTitle.setBorder(new EmptyBorder(10, 20, 30, 10));
+        appTitle.setBorder(new EmptyBorder(10, 20, 10, 10));
         sidebar.add(appTitle);
 
+        // Logged in user info
+        if (currentUser != null) {
+            JLabel userBadge = new JLabel("  👤 " + currentUser.getUsername());
+            userBadge.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            userBadge.setForeground(TEXT_SECONDARY);
+            userBadge.setAlignmentX(Component.LEFT_ALIGNMENT);
+            userBadge.setBorder(new EmptyBorder(0, 20, 20, 10));
+            sidebar.add(userBadge);
+        } else {
+            sidebar.add(Box.createVerticalStrut(20));
+        }
+
         // Navigation buttons
-        String[] navItems = { "Dashboard", "Books", "Buy Books", "Sell Books", "Exit" };
+        String[] navItems = { "Dashboard", "Books", "Buy Books", "Sell Books", "Change Password", "Logout", "Exit" };
 
         for (String item : navItems) {
             JButton navBtn = createNavButton(item);
@@ -176,6 +203,22 @@ public class MainFrame extends JFrame {
             public void actionPerformed(ActionEvent e) {
                 if (text.equals("Exit")) {
                     System.exit(0);
+                } else if (text.equals("Change Password")) {
+                    showChangePasswordDialog();
+                } else if (text.equals("Logout")) {
+                    int confirm = JOptionPane.showConfirmDialog(
+                            MainFrame.this,
+                            "Are you sure you want to log out?",
+                            "Confirm Logout",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.QUESTION_MESSAGE
+                    );
+                    if (confirm == JOptionPane.YES_OPTION) {
+                        dispose();
+                        SwingUtilities.invokeLater(() -> {
+                            new LoginFrame().setVisible(true);
+                        });
+                    }
                 } else {
                     switchToPanel(text);
                 }
@@ -1097,7 +1140,170 @@ public class MainFrame extends JFrame {
         }
     }
 
+    // ==================== CHANGE PASSWORD DIALOG ====================
+
+    private void showChangePasswordDialog() {
+        if (currentUser == null) {
+            try {
+                currentUser = userDAO.getUserByUsername("Admin");
+            } catch (SQLException ignored) {
+            }
+        }
+
+        String username = (currentUser != null) ? currentUser.getUsername() : "Admin";
+        JDialog dialog = createStyledDialog("Change Password - " + username, 430, 420);
+        dialog.setLayout(new BorderLayout());
+
+        JPanel form = new JPanel();
+        form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
+        form.setBackground(BG_CARD);
+        form.setBorder(new EmptyBorder(22, 25, 22, 25));
+
+        // Header info
+        JLabel lblHeader = new JLabel("Change Password for: " + username);
+        lblHeader.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        lblHeader.setForeground(ACCENT);
+        lblHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
+        form.add(lblHeader);
+        form.add(Box.createVerticalStrut(15));
+
+        // Current Password
+        JLabel lblCurrent = createFormLabel("Current Password:");
+        lblCurrent.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPasswordField txtCurrent = createStyledPasswordField();
+        form.add(lblCurrent);
+        form.add(Box.createVerticalStrut(4));
+        form.add(txtCurrent);
+        form.add(Box.createVerticalStrut(10));
+
+        // New Password
+        JLabel lblNew = createFormLabel("New Password:");
+        lblNew.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPasswordField txtNew = createStyledPasswordField();
+        form.add(lblNew);
+        form.add(Box.createVerticalStrut(4));
+        form.add(txtNew);
+        form.add(Box.createVerticalStrut(10));
+
+        // Confirm New Password
+        JLabel lblConfirm = createFormLabel("Confirm New Password:");
+        lblConfirm.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPasswordField txtConfirm = createStyledPasswordField();
+        form.add(lblConfirm);
+        form.add(Box.createVerticalStrut(4));
+        form.add(txtConfirm);
+        form.add(Box.createVerticalStrut(8));
+
+        // Show/hide password checkbox
+        JCheckBox chkShow = new JCheckBox("Show Passwords");
+        chkShow.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        chkShow.setForeground(TEXT_SECONDARY);
+        chkShow.setBackground(BG_CARD);
+        chkShow.setFocusPainted(false);
+        chkShow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        chkShow.addActionListener(e -> {
+            char echo = chkShow.isSelected() ? (char) 0 : '•';
+            txtCurrent.setEchoChar(echo);
+            txtNew.setEchoChar(echo);
+            txtConfirm.setEchoChar(echo);
+        });
+        form.add(chkShow);
+        form.add(Box.createVerticalStrut(8));
+
+        // Status message
+        JLabel lblStatus = new JLabel(" ");
+        lblStatus.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        lblStatus.setForeground(DANGER);
+        lblStatus.setAlignmentX(Component.LEFT_ALIGNMENT);
+        form.add(lblStatus);
+        form.add(Box.createVerticalStrut(15));
+
+        // Buttons
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
+        btnPanel.setBackground(BG_CARD);
+        btnPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        btnPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+
+        JButton saveBtn = createStyledButton("Update Password", ACCENT);
+        JButton cancelBtn = createStyledButton("Cancel", BG_INPUT);
+
+        saveBtn.addActionListener(e -> {
+            String currentPass = new String(txtCurrent.getPassword());
+            String newPass = new String(txtNew.getPassword());
+            String confirmPass = new String(txtConfirm.getPassword());
+
+            if (currentPass.isEmpty()) {
+                lblStatus.setText("Please enter your current password.");
+                txtCurrent.requestFocusInWindow();
+                return;
+            }
+            if (newPass.isEmpty()) {
+                lblStatus.setText("Please enter a new password.");
+                txtNew.requestFocusInWindow();
+                return;
+            }
+            if (newPass.length() < 4) {
+                lblStatus.setText("New password must be at least 4 characters.");
+                txtNew.requestFocusInWindow();
+                return;
+            }
+            if (!newPass.equals(confirmPass)) {
+                lblStatus.setText("New passwords do not match.");
+                txtConfirm.setText("");
+                txtConfirm.requestFocusInWindow();
+                return;
+            }
+
+            try {
+                User verified = userDAO.authenticate(username, currentPass);
+                if (verified == null) {
+                    lblStatus.setText("Current password is incorrect.");
+                    txtCurrent.setText("");
+                    txtCurrent.requestFocusInWindow();
+                    return;
+                }
+
+                boolean updated = userDAO.updatePassword(username, newPass);
+                if (updated) {
+                    currentUser = userDAO.getUserByUsername(username);
+                    dialog.dispose();
+                    showSuccess("Password updated successfully!\nPlease use your new password for future logins.");
+                } else {
+                    lblStatus.setText("Failed to update password. Please try again.");
+                }
+            } catch (SQLException ex) {
+                lblStatus.setText("Error updating password: " + ex.getMessage());
+                ex.printStackTrace();
+            }
+        });
+
+        cancelBtn.addActionListener(e -> dialog.dispose());
+
+        btnPanel.add(saveBtn);
+        btnPanel.add(cancelBtn);
+        form.add(btnPanel);
+
+        dialog.add(form, BorderLayout.CENTER);
+        dialog.setVisible(true);
+    }
+
     // ==================== UI HELPER METHODS ====================
+
+    /** Creates a styled password field with dark theme. */
+    private JPasswordField createStyledPasswordField() {
+        JPasswordField field = new JPasswordField();
+        field.setFont(FONT_INPUT);
+        field.setForeground(TEXT_PRIMARY);
+        field.setBackground(BG_INPUT);
+        field.setCaretColor(TEXT_PRIMARY);
+        field.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
+        field.setPreferredSize(new Dimension(360, 36));
+        field.setAlignmentX(Component.LEFT_ALIGNMENT);
+        field.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(60, 60, 80), 1),
+                new EmptyBorder(6, 10, 6, 10)));
+        return field;
+    }
 
     /** Creates a styled text field with dark theme. */
     private JTextField createStyledTextField(int columns) {

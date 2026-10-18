@@ -14,6 +14,7 @@ public class TestAll {
     private static BookDAO bookDAO = new BookDAO();
     private static PurchaseDAO purchaseDAO = new PurchaseDAO();
     private static SaleDAO saleDAO = new SaleDAO();
+    private static UserDAO userDAO = new UserDAO();
     private static int passed = 0;
     private static int failed = 0;
 
@@ -29,6 +30,7 @@ public class TestAll {
             stmt.execute("DROP TABLE IF EXISTS sales");
             stmt.execute("DROP TABLE IF EXISTS purchases");
             stmt.execute("DROP TABLE IF EXISTS books");
+            stmt.execute("DROP TABLE IF EXISTS users");
         } catch (SQLException e) {
             System.out.println("Error clearing test DB: " + e.getMessage());
         }
@@ -51,6 +53,11 @@ public class TestAll {
             testDeleteBookWithHistory();
             testDeleteBookWithoutHistory();
             testDashboardQueries();
+            testDefaultAdminAndChangePassword();
+            testUserRegistrationAndAuthentication();
+            testUserDuplicateRegistration();
+            testUserCaseInsensitivity();
+            testUserPersistenceForNextUse();
         } catch (Exception e) {
             System.out.println("UNEXPECTED ERROR: " + e.getMessage());
             e.printStackTrace();
@@ -60,7 +67,7 @@ public class TestAll {
 
         // Clean up test database
         try {
-            java.io.File dbFile = new java.io.File("database/oldbookstore.db");
+            java.io.File dbFile = new java.io.File("database/test_oldbookstore.db");
             if (dbFile.exists()) {
                 dbFile.delete();
                 System.out.println("Test database cleaned up.");
@@ -251,5 +258,92 @@ public class TestAll {
         check("Total purchase amount > 0", purchaseDAO.getTotalPurchaseAmount() > 0);
         check("Total sales amount = 800", saleDAO.getTotalSalesAmount() == 800.0);
         check("Total profit = 300", saleDAO.getTotalProfit() == 300.0);
+    }
+
+    // ==================== USER AUTHENTICATION & REGISTRATION ====================
+
+    static void testDefaultAdminAndChangePassword() throws SQLException {
+        System.out.println("\n--- Test: Default Admin & Change Password ---");
+
+        // 1. Verify default admin account exists with username "Admin"
+        User admin = userDAO.getUserByUsername("Admin");
+        check("Default Admin account was seeded automatically", admin != null);
+        check("Default username is 'Admin'", admin != null && "Admin".equals(admin.getUsername()));
+
+        // 2. Authenticate with default Admin/admin credentials
+        User authAdmin = userDAO.authenticate("Admin", "admin");
+        check("Login with default Admin/admin succeeds", authAdmin != null);
+
+        // 3. Test changing admin password
+        boolean updated = userDAO.updatePassword("Admin", "newAdminPass99");
+        check("Password update returned true", updated);
+
+        // 4. Verify old password no longer works
+        User oldAuth = userDAO.authenticate("Admin", "admin");
+        check("Old password (admin) is rejected after password change", oldAuth == null);
+
+        // 5. Verify new password works
+        User newAuth = userDAO.authenticate("Admin", "newAdminPass99");
+        check("New password (newAdminPass99) authenticates successfully", newAuth != null);
+
+        // Reset back to admin for consistency
+        userDAO.updatePassword("Admin", "admin");
+    }
+
+    static void testUserRegistrationAndAuthentication() throws SQLException {
+        System.out.println("\n--- Test: User Registration & Authentication ---");
+
+        // 1. Register a new user
+        boolean registered = userDAO.registerUser("shanil", "myPassword123");
+        check("User registration successful", registered);
+
+        // 2. Verify stored password is securely hashed (not plain text)
+        User user = userDAO.getUserByUsername("shanil");
+        check("User retrieved from DB", user != null);
+        check("Password is not stored in plain text", user != null && !"myPassword123".equals(user.getPasswordHash()));
+        check("Salt is generated and saved", user != null && user.getSalt() != null && !user.getSalt().isEmpty());
+
+        // 3. Authenticate with correct credentials
+        User authUser = userDAO.authenticate("shanil", "myPassword123");
+        check("Login with correct credentials succeeds", authUser != null && "shanil".equals(authUser.getUsername()));
+
+        // 4. Authenticate with wrong password
+        User wrongPassUser = userDAO.authenticate("shanil", "wrongPassword");
+        check("Login with wrong password fails", wrongPassUser == null);
+
+        // 5. Authenticate with nonexistent user
+        User unknownUser = userDAO.authenticate("nonexistent_user", "somePassword");
+        check("Login with unknown username fails", unknownUser == null);
+    }
+
+    static void testUserDuplicateRegistration() throws SQLException {
+        System.out.println("\n--- Test: Prevent Duplicate Username ---");
+
+        // Attempting to register existing username should be rejected
+        boolean dupReg = userDAO.registerUser("shanil", "anotherPassword");
+        check("Duplicate registration is rejected", !dupReg);
+    }
+
+    static void testUserCaseInsensitivity() throws SQLException {
+        System.out.println("\n--- Test: Username Case-Insensitive Matching ---");
+
+        // Login using uppercase or mixed case should work
+        User upperUser = userDAO.authenticate("SHANIL", "myPassword123");
+        check("Case-insensitive username login succeeds", upperUser != null && "shanil".equalsIgnoreCase(upperUser.getUsername()));
+
+        // Duplicate registration with different case should also be blocked
+        boolean dupCaseReg = userDAO.registerUser("ShaniL", "somePass");
+        check("Duplicate registration with different casing is rejected", !dupCaseReg);
+    }
+
+    static void testUserPersistenceForNextUse() throws SQLException {
+        System.out.println("\n--- Test: User Persistence For Next Use ---");
+
+        // Create a completely new UserDAO instance (simulating subsequent app launches)
+        UserDAO freshUserDAO = new UserDAO();
+        check("User count reflects persisted accounts", freshUserDAO.getUserCount() >= 1);
+
+        User persistentUser = freshUserDAO.authenticate("shanil", "myPassword123");
+        check("Persisted credentials authenticate on next use", persistentUser != null && "shanil".equals(persistentUser.getUsername()));
     }
 }

@@ -12,11 +12,11 @@ public class Main {
         // Initialize the database tables on startup
         DatabaseConnection.initializeDatabase();
 
-        // Launch the Swing GUI on the Event Dispatch Thread
+        // Launch the Login & Register authentication interface on the Event Dispatch Thread
         SwingUtilities.invokeLater(new Runnable() {
             public void run() {
-                MainFrame frame = new MainFrame();
-                frame.setVisible(true);
+                LoginFrame loginFrame = new LoginFrame();
+                loginFrame.setVisible(true);
             }
         });
     }
