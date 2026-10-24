@@ -118,7 +118,10 @@ public class BookDAO {
 
     // ==================== DELETE ====================
 
-    /** Deletes a book if it has no purchase or sales history. */
+    /**
+     * Deletes a book if it has no purchase or sales history.
+     * Foreign-key constraints will also prevent deletion if transactions exist.
+     */
     public void deleteBook(int bookId) throws SQLException {
         String sql = "DELETE FROM books WHERE book_id = ?";
 
@@ -127,6 +130,12 @@ public class BookDAO {
 
             pstmt.setInt(1, bookId);
             pstmt.executeUpdate();
+        } catch (SQLException e) {
+            // SQLite error code 787 = SQLITE_CONSTRAINT_FOREIGNKEY
+            if (e.getMessage() != null && e.getMessage().contains("FOREIGN KEY constraint failed")) {
+                throw new SQLException("Cannot delete this book because it has purchase or sales history.");
+            }
+            throw e;
         }
     }
 

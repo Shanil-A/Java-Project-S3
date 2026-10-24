@@ -10,7 +10,6 @@ database/*.db
 .classpath
 .project
 .settings/
-target/
 
 # OS files
 .DS_Store

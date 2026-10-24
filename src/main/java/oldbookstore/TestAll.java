@@ -1,12 +1,14 @@
 package oldbookstore;
 
+import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.LocalDate;
 import java.util.List;
 
 /**
  * Automated test for core functionality.
- * Tests CRUD operations, purchase, sale, stock, profit, and validation.
+ * Tests CRUD operations, purchase, sale, stock, profit, foreign keys, and validation.
  * Uses a separate test database to avoid affecting real data.
  */
 public class TestAll {
@@ -25,8 +27,8 @@ public class TestAll {
         DatabaseConnection.setDatabaseUrl("jdbc:sqlite:database/test_oldbookstore.db");
 
         // Drop existing test tables for a clean start
-        try (java.sql.Connection conn = DatabaseConnection.getConnection();
-             java.sql.Statement stmt = conn.createStatement()) {
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement stmt = conn.createStatement()) {
             stmt.execute("DROP TABLE IF EXISTS sales");
             stmt.execute("DROP TABLE IF EXISTS purchases");
             stmt.execute("DROP TABLE IF EXISTS books");
@@ -39,6 +41,7 @@ public class TestAll {
         DatabaseConnection.initializeDatabase();
 
         try {
+            testForeignKeyEnforcement();
             testAddBook();
             testGetAllBooks();
             testSearchBooks();
@@ -49,6 +52,8 @@ public class TestAll {
             testStockDecrease();
             testProfitCalculation();
             testInsufficientStock();
+            testForeignKeyPurchaseWithInvalidBook();
+            testForeignKeySaleWithInvalidBook();
             testTransactionHistoryCheck();
             testDeleteBookWithHistory();
             testDeleteBookWithoutHistory();
@@ -84,6 +89,20 @@ public class TestAll {
         } else {
             System.out.println("  FAIL: " + testName);
             failed++;
+        }
+    }
+
+    // ==================== FOREIGN KEY ENFORCEMENT ====================
+    static void testForeignKeyEnforcement() throws SQLException {
+        System.out.println("\n--- Test: Foreign Key Enforcement Enabled ---");
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement stmt = conn.createStatement();
+             java.sql.ResultSet rs = stmt.executeQuery("PRAGMA foreign_keys")) {
+            if (rs.next()) {
+                check("PRAGMA foreign_keys = ON", rs.getInt(1) == 1);
+            } else {
+                check("PRAGMA foreign_keys query returned result", false);
+            }
         }
     }
 
@@ -219,6 +238,34 @@ public class TestAll {
         check("Would reject sale of 10 (> 6)", 10 > stock);
     }
 
+    // ==================== FOREIGN KEY: INVALID PURCHASE ====================
+    static void testForeignKeyPurchaseWithInvalidBook() {
+        System.out.println("\n--- Test: FK - Purchase With Invalid Book ID ---");
+        int invalidBookId = 99999;
+        Purchase badPurchase = new Purchase(invalidBookId, 1, "Nobody", 100.0, 100.0, LocalDate.now().toString());
+        boolean rejected = false;
+        try {
+            purchaseDAO.addPurchase(badPurchase);
+        } catch (SQLException e) {
+            rejected = true;
+        }
+        check("Purchase with nonexistent book_id is rejected by FK", rejected);
+    }
+
+    // ==================== FOREIGN KEY: INVALID SALE ====================
+    static void testForeignKeySaleWithInvalidBook() {
+        System.out.println("\n--- Test: FK - Sale With Invalid Book ID ---");
+        int invalidBookId = 99999;
+        Sale badSale = new Sale(invalidBookId, 1, "Nobody", 100.0, 100.0, 50.0, LocalDate.now().toString());
+        boolean rejected = false;
+        try {
+            saleDAO.addSale(badSale);
+        } catch (SQLException e) {
+            rejected = true;
+        }
+        check("Sale with nonexistent book_id is rejected by FK", rejected);
+    }
+
     // ==================== TRANSACTION HISTORY ====================
     static void testTransactionHistoryCheck() throws SQLException {
         System.out.println("\n--- Test: Transaction History Check ---");
@@ -228,13 +275,25 @@ public class TestAll {
     }
 
     // ==================== DELETE WITH HISTORY ====================
-    static void testDeleteBookWithHistory() throws SQLException {
+    static void testDeleteBookWithHistory() {
         System.out.println("\n--- Test: Delete Book With History (should be blocked) ---");
-        List<Book> books = bookDAO.getAllBooks();
-        int bookId = books.get(0).getBookId();
-        boolean hasHistory = bookDAO.hasTransactionHistory(bookId);
-        check("Has transaction history", hasHistory);
-        check("Delete should be blocked", hasHistory); // In the app, this would prevent deletion
+        try {
+            List<Book> books = bookDAO.getAllBooks();
+            int bookId = books.get(0).getBookId();
+            boolean hasHistory = bookDAO.hasTransactionHistory(bookId);
+            check("Has transaction history", hasHistory);
+
+            // Attempt deletion — FK constraint should reject it
+            boolean fkRejected = false;
+            try {
+                bookDAO.deleteBook(bookId);
+            } catch (SQLException e) {
+                fkRejected = true;
+            }
+            check("FK constraint rejects deletion of book with history", fkRejected);
+        } catch (SQLException e) {
+            check("Delete with history test failed unexpectedly", false);
+        }
     }
 
     // ==================== DELETE WITHOUT HISTORY ====================
