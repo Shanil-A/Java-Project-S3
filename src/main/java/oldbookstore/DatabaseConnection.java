@@ -2,6 +2,8 @@ package oldbookstore;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
@@ -23,9 +25,15 @@ public class DatabaseConnection {
 
     /**
      * Returns a connection to the SQLite database.
+     * Foreign-key enforcement is enabled on every connection.
      */
     public static Connection getConnection() throws SQLException {
-        return DriverManager.getConnection(DB_URL);
+        Connection conn = DriverManager.getConnection(DB_URL);
+        // Enable foreign-key enforcement for this connection
+        try (Statement stmt = conn.createStatement()) {
+            stmt.execute("PRAGMA foreign_keys = ON");
+        }
+        return conn;
     }
 
     // ==================== DATABASE INITIALIZATION ====================
@@ -57,7 +65,7 @@ public class DatabaseConnection {
                     + ")";
             stmt.execute(createBooksTable);
 
-            // Create purchases table
+            // Create purchases table with foreign key referencing books
             String createPurchasesTable = "CREATE TABLE IF NOT EXISTS purchases ("
                     + "purchase_id INTEGER PRIMARY KEY AUTOINCREMENT, "
                     + "book_id INTEGER NOT NULL, "
@@ -66,11 +74,11 @@ public class DatabaseConnection {
                     + "buying_price REAL NOT NULL, "
                     + "total_amount REAL NOT NULL, "
                     + "purchase_date TEXT NOT NULL, "
-                    + "FOREIGN KEY (book_id) REFERENCES books(book_id)"
+                    + "FOREIGN KEY (book_id) REFERENCES books(book_id) ON DELETE RESTRICT"
                     + ")";
             stmt.execute(createPurchasesTable);
 
-            // Create sales table
+            // Create sales table with foreign key referencing books
             String createSalesTable = "CREATE TABLE IF NOT EXISTS sales ("
                     + "sale_id INTEGER PRIMARY KEY AUTOINCREMENT, "
                     + "book_id INTEGER NOT NULL, "
@@ -80,9 +88,43 @@ public class DatabaseConnection {
                     + "total_amount REAL NOT NULL, "
                     + "profit REAL NOT NULL, "
                     + "sale_date TEXT NOT NULL, "
-                    + "FOREIGN KEY (book_id) REFERENCES books(book_id)"
+                    + "FOREIGN KEY (book_id) REFERENCES books(book_id) ON DELETE RESTRICT"
                     + ")";
             stmt.execute(createSalesTable);
+
+            // Create users table
+            String createUsersTable = "CREATE TABLE IF NOT EXISTS users ("
+                    + "user_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    + "username TEXT UNIQUE NOT NULL, "
+                    + "password_hash TEXT NOT NULL, "
+                    + "salt TEXT NOT NULL, "
+                    + "created_at TEXT NOT NULL"
+                    + ")";
+            stmt.execute(createUsersTable);
+
+            // Ensure default admin user exists (username: Admin, password: admin)
+            boolean adminExists = false;
+            try (ResultSet rs = stmt.executeQuery("SELECT 1 FROM users WHERE LOWER(username) = 'admin'")) {
+                if (rs.next()) {
+                    adminExists = true;
+                }
+            }
+            if (!adminExists) {
+                String salt = PasswordUtil.generateSalt();
+                String hash = PasswordUtil.hashPassword("admin", salt);
+                String createdAt = java.time.LocalDateTime.now().format(
+                        java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                String insertSql = "INSERT INTO users (username, password_hash, salt, created_at) "
+                        + "VALUES (?, ?, ?, ?)";
+                try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
+                    pstmt.setString(1, "Admin");
+                    pstmt.setString(2, hash);
+                    pstmt.setString(3, salt);
+                    pstmt.setString(4, createdAt);
+                    pstmt.executeUpdate();
+                }
+                System.out.println("Default admin user created (Admin / admin).");
+            }
 
             System.out.println("Database initialized successfully.");
 
